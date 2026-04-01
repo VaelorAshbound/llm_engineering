@@ -1,0 +1,30 @@
+# Vibe coding and debugging
+
+"Vibe coding" is the affectionate term for coding with the assistance of LLMs. It's particularly easy and wonderful to do with Cursor! But there are some good techniques to make it work well, which I cover on the course. Here are a few essential tips:
+
+1. If you're prompting an LLM like ChatGPT or Claude to write code, include the current date in your prompt, and instruct the LLM to generate code that uses the latest versions of APIs. This is particularly important with the OpenAI API! ChatGPT frequently tries to use outdated versions of its own API...
+
+2. Also in your prompts, ask LLMs to keep their code as short and simple as possible. LLMs seem to love to add lots of extra, unnecessary checks that clutters code and makes it hard to find problems.
+
+3. Ask the same question to multiple LLMs, and pick the answer that is clearest and simplest.
+
+4. Similar: take the answer from 1 LLM, and ask another LLM to verify it for correctness and whether it could be simpler or clearer.
+
+5. Ask an LLM to give you 3 variations for ways to solve a problem, and pick the one that is clearest.
+
+## Vibe Coding for a larger project
+
+Try to avoid having an LLM generate 100-200 lines of code or more; it will be so hard for you to debug and figure out what's going wrong (unless you're already knowledgable).
+
+Instead: start by breaking down your problem into small, independently testable steps, that are each relatively small. If you're not sure how to break down your problem - this is something you can ask the LLM to do!
+
+Then for each of these building blocks:
+- Use the tips above to have the LLM build the code
+- Also have the LLM write tests to test and verify the code
+- Test it yourself and satisfy yourself that it's working correctly
+
+This will allow you to build a larger project with confidence.
+
+## The golden rule: start small, work incrementally!
+
+
