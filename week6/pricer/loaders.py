@@ -1,20 +1,21 @@
-from datetime import datetime
-from tqdm import tqdm
-from datasets import load_dataset
-from concurrent.futures import ProcessPoolExecutor
-from pricer.parser import parse
 import os
+from concurrent.futures import ProcessPoolExecutor
+from datetime import datetime
+from typing import Optional
+
+from datasets import Dataset, load_dataset
+from pricer.parser import parse
+from tqdm import tqdm
 
 CHUNK_SIZE = 1000
 
-cpu_count = os.cpu_count()
-WORKERS = max(cpu_count - 1, 1)
+WORKERS = max((os.cpu_count() or 2) - 1, 1)
 
 
 class ItemLoader:
     def __init__(self, category):
         self.category = category
-        self.dataset = None
+        self.dataset: Optional[Dataset] = None
 
     def from_datapoint(self, datapoint):
         """
@@ -34,6 +35,7 @@ class ItemLoader:
         """
         Iterate over the Dataset, yielding chunks of datapoints at a time
         """
+        assert self.dataset is not None, "Dataset has not been loaded yet"
         size = len(self.dataset)
         for i in range(0, size, CHUNK_SIZE):
             yield self.dataset.select(range(i, min(i + CHUNK_SIZE, size)))
@@ -43,10 +45,13 @@ class ItemLoader:
         Use concurrent.futures to farm out the work to process chunks of datapoints -
         This speeds up processing significantly, but will tie up your computer while it's doing so!
         """
+        assert self.dataset is not None, "Dataset has not been loaded yet"
         results = []
         chunk_count = (len(self.dataset) // CHUNK_SIZE) + 1
         with ProcessPoolExecutor(max_workers=workers) as pool:
-            for batch in tqdm(pool.map(self.from_chunk, self.chunk_generator()), total=chunk_count):
+            for batch in tqdm(
+                pool.map(self.from_chunk, self.chunk_generator()), total=chunk_count
+            ):
                 results.extend(batch)
         return results
 
@@ -57,7 +62,7 @@ class ItemLoader:
         """
         start = datetime.now()
         print(f"Loading dataset {self.category}", flush=True)
-        self.dataset = load_dataset(
+        self.dataset = load_dataset(  # type: ignore[assignment]
             "McAuley-Lab/Amazon-Reviews-2023",
             f"raw_meta_{self.category}",
             split="full",

@@ -1,11 +1,12 @@
-from openai import OpenAI
-from dotenv import load_dotenv
-from chromadb import PersistentClient
-from litellm import completion
-from pydantic import BaseModel, Field
 from pathlib import Path
-from tenacity import retry, wait_exponential
+from typing import Any, cast
 
+from chromadb import PersistentClient
+from dotenv import load_dotenv
+from litellm import completion
+from openai import OpenAI
+from pydantic import BaseModel, Field
+from tenacity import retry, wait_exponential
 
 load_dotenv(override=True)
 
@@ -68,15 +69,19 @@ Reply only with the list of ranked chunk ids, nothing else. Include all the chun
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
-    response = completion(model=MODEL, messages=messages, response_format=RankOrder)
+    response = cast(
+        Any, completion(model=MODEL, messages=messages, response_format=RankOrder)
+    )
     reply = response.choices[0].message.content
+    assert reply is not None, "Expected non-None content from completion"
     order = RankOrder.model_validate_json(reply).order
     return [chunks[i - 1] for i in order]
 
 
 def make_rag_messages(question, history, chunks):
     context = "\n\n".join(
-        f"Extract from {chunk.metadata['source']}:\n{chunk.page_content}" for chunk in chunks
+        f"Extract from {chunk.metadata['source']}:\n{chunk.page_content}"
+        for chunk in chunks
     )
     system_prompt = SYSTEM_PROMPT.format(context=context)
     return (
@@ -103,8 +108,12 @@ Respond only with a short, refined question that you will use to search the Know
 It should be a VERY short specific question most likely to surface content. Focus on the question details.
 IMPORTANT: Respond ONLY with the precise knowledgebase query, nothing else.
 """
-    response = completion(model=MODEL, messages=[{"role": "system", "content": message}])
-    return response.choices[0].message.content
+    response = cast(
+        Any, completion(model=MODEL, messages=[{"role": "system", "content": message}])
+    )
+    content = response.choices[0].message.content
+    assert content is not None, "Expected non-None content from completion"
+    return content
 
 
 def merge_chunks(chunks, reranked):
@@ -117,11 +126,17 @@ def merge_chunks(chunks, reranked):
 
 
 def fetch_context_unranked(question):
-    query = openai.embeddings.create(model=embedding_model, input=[question]).data[0].embedding
+    query = (
+        openai.embeddings.create(model=embedding_model, input=[question])
+        .data[0]
+        .embedding
+    )
     results = collection.query(query_embeddings=[query], n_results=RETRIEVAL_K)
     chunks = []
-    for result in zip(results["documents"][0], results["metadatas"][0]):
-        chunks.append(Result(page_content=result[0], metadata=result[1]))
+    documents = results["documents"] or []
+    metadatas = results["metadatas"] or []
+    for result in zip(documents[0], metadatas[0]):
+        chunks.append(Result(page_content=result[0], metadata=dict(result[1])))  # type: ignore[arg-type]
     return chunks
 
 
@@ -141,5 +156,7 @@ def answer_question(question: str, history: list[dict] = []) -> tuple[str, list]
     """
     chunks = fetch_context(question)
     messages = make_rag_messages(question, history, chunks)
-    response = completion(model=MODEL, messages=messages)
-    return response.choices[0].message.content, chunks
+    response = cast(Any, completion(model=MODEL, messages=messages))
+    content = response.choices[0].message.content
+    assert content is not None, "Expected non-None content from completion"
+    return content, chunks

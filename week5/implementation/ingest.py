@@ -1,14 +1,12 @@
-import os
 import glob
+import os
 from pathlib import Path
-from langchain_community.document_loaders import DirectoryLoader, TextLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_openai import OpenAIEmbeddings
-
 
 from dotenv import load_dotenv
+from langchain_chroma import Chroma
+from langchain_community.document_loaders import DirectoryLoader, TextLoader
+from langchain_openai import OpenAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 MODEL = "gpt-4.1-nano"
 
@@ -28,7 +26,10 @@ def fetch_documents():
     for folder in folders:
         doc_type = os.path.basename(folder)
         loader = DirectoryLoader(
-            folder, glob="**/*.md", loader_cls=TextLoader, loader_kwargs={"encoding": "utf-8"}
+            folder,
+            glob="**/*.md",
+            loader_cls=TextLoader,
+            loader_kwargs={"encoding": "utf-8"},
         )
         folder_docs = loader.load()
         for doc in folder_docs:
@@ -45,7 +46,9 @@ def create_chunks(documents):
 
 def create_embeddings(chunks):
     if os.path.exists(DB_NAME):
-        Chroma(persist_directory=DB_NAME, embedding_function=embeddings).delete_collection()
+        Chroma(
+            persist_directory=DB_NAME, embedding_function=embeddings
+        ).delete_collection()
 
     vectorstore = Chroma.from_documents(
         documents=chunks, embedding=embeddings, persist_directory=DB_NAME
@@ -54,9 +57,14 @@ def create_embeddings(chunks):
     collection = vectorstore._collection
     count = collection.count()
 
-    sample_embedding = collection.get(limit=1, include=["embeddings"])["embeddings"][0]
+    get_result = collection.get(limit=1, include=["embeddings"])
+    embeddings_data = get_result["embeddings"]
+    assert embeddings_data is not None, "Expected embeddings from collection"
+    sample_embedding = embeddings_data[0]
     dimensions = len(sample_embedding)
-    print(f"There are {count:,} vectors with {dimensions:,} dimensions in the vector store")
+    print(
+        f"There are {count:,} vectors with {dimensions:,} dimensions in the vector store"
+    )
     return vectorstore
 
 

@@ -1,6 +1,6 @@
 import gradio as gr
 from dotenv import load_dotenv
-
+from gradio.themes import Soft
 from implementation.answer import answer_question
 
 load_dotenv(override=True)
@@ -9,7 +9,9 @@ load_dotenv(override=True)
 def format_context(context):
     result = "<h2 style='color: #ff7800;'>Relevant Context</h2>\n\n"
     for doc in context:
-        result += f"<span style='color: #ff7800;'>Source: {doc.metadata['source']}</span>\n\n"
+        result += (
+            f"<span style='color: #ff7800;'>Source: {doc.metadata['source']}</span>\n\n"
+        )
         result += doc.page_content + "\n\n"
     return result
 
@@ -26,7 +28,7 @@ def main():
     def put_message_in_chatbot(message, history):
         return "", history + [{"role": "user", "content": message}]
 
-    theme = gr.themes.Soft(font=["Inter", "system-ui", "sans-serif"])
+    theme = Soft(font=["Inter", "system-ui", "sans-serif"])
 
     with gr.Blocks(title="Insurellm Expert Assistant", theme=theme) as ui:
         gr.Markdown("# 🏢 Insurellm Expert Assistant\nAsk me anything about Insurellm!")
@@ -34,7 +36,10 @@ def main():
         with gr.Row():
             with gr.Column(scale=1):
                 chatbot = gr.Chatbot(
-                    label="💬 Conversation", height=600, type="messages", show_copy_button=True
+                    label="💬 Conversation",
+                    height=600,
+                    type="messages",
+                    show_copy_button=True,
                 )
                 message = gr.Textbox(
                     label="Your Question",
@@ -51,7 +56,9 @@ def main():
                 )
 
         message.submit(
-            put_message_in_chatbot, inputs=[message, chatbot], outputs=[message, chatbot]
+            put_message_in_chatbot,
+            inputs=[message, chatbot],
+            outputs=[message, chatbot],
         ).then(chat, inputs=chatbot, outputs=[chatbot, context_markdown])
 
     ui.launch(inbrowser=True)

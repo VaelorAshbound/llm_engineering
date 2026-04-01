@@ -1,12 +1,16 @@
 from pathlib import Path
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_core.messages import SystemMessage, HumanMessage, convert_to_messages
-from langchain_core.documents import Document
+from typing import cast
 
 from dotenv import load_dotenv
-
+from langchain_chroma import Chroma
+from langchain_core.documents import Document
+from langchain_core.messages import (
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    convert_to_messages,
+)
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 load_dotenv(override=True)
 
@@ -28,7 +32,7 @@ Context:
 
 vectorstore = Chroma(persist_directory=DB_NAME, embedding_function=embeddings)
 retriever = vectorstore.as_retriever()
-llm = ChatOpenAI(temperature=0, model_name=MODEL)
+llm = ChatOpenAI(temperature=0, model=MODEL)
 
 
 def fetch_context(question: str) -> list[Document]:
@@ -46,7 +50,9 @@ def combined_question(question: str, history: list[dict] = []) -> str:
     return prior + "\n" + question
 
 
-def answer_question(question: str, history: list[dict] = []) -> tuple[str, list[Document]]:
+def answer_question(
+    question: str, history: list[dict] = []
+) -> tuple[str, list[Document]]:
     """
     Answer the given question with RAG; return the answer and the context documents.
     """
@@ -54,8 +60,8 @@ def answer_question(question: str, history: list[dict] = []) -> tuple[str, list[
     docs = fetch_context(combined)
     context = "\n\n".join(doc.page_content for doc in docs)
     system_prompt = SYSTEM_PROMPT.format(context=context)
-    messages = [SystemMessage(content=system_prompt)]
+    messages: list[BaseMessage] = [SystemMessage(content=system_prompt)]
     messages.extend(convert_to_messages(history))
     messages.append(HumanMessage(content=question))
     response = llm.invoke(messages)
-    return response.content, docs
+    return cast(str, response.content), docs

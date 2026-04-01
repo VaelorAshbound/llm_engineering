@@ -1,11 +1,14 @@
+from typing import Optional, cast
+
 import numpy as np
-from tqdm.notebook import tqdm
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from scipy.sparse import csr_matrix
 from sklearn.feature_extraction.text import HashingVectorizer
+from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.utils.data import DataLoader, TensorDataset
+from tqdm.notebook import tqdm
 
 
 class ResidualBlock(nn.Module):
@@ -61,32 +64,34 @@ class DeepNeuralNetworkRunner:
     def __init__(self, train, val):
         self.train_data = train
         self.val_data = val
-        self.vectorizer = None
-        self.model = None
-        self.device = None
-        self.loss_function = None
-        self.optimizer = None
-        self.scheduler = None
-        self.train_dataset = None
-        self.train_loader = None
-        self.y_mean = None
-        self.y_std = None
+        self.vectorizer: Optional[HashingVectorizer] = None
+        self.model: Optional[DeepNeuralNetwork] = None
+        self.device: Optional[torch.device] = None
+        self.loss_function: Optional[nn.L1Loss] = None
+        self.optimizer: Optional[optim.AdamW] = None
+        self.scheduler: Optional[CosineAnnealingLR] = None
+        self.train_dataset: Optional[TensorDataset] = None
+        self.train_loader: Optional[DataLoader] = None
+        self.y_mean: Optional[torch.Tensor] = None
+        self.y_std: Optional[torch.Tensor] = None
 
         np.random.seed(42)
         torch.manual_seed(42)
         torch.cuda.manual_seed(42)
 
     def setup(self):
-        self.vectorizer = HashingVectorizer(n_features=5000, stop_words="english", binary=True)
+        self.vectorizer = HashingVectorizer(
+            n_features=5000, stop_words="english", binary=True
+        )
 
         train_documents = [item.summary for item in self.train_data]
-        X_train_np = self.vectorizer.fit_transform(train_documents)
+        X_train_np = cast(csr_matrix, self.vectorizer.fit_transform(train_documents))
         self.X_train = torch.FloatTensor(X_train_np.toarray())
         y_train_np = np.array([float(item.price) for item in self.train_data])
         self.y_train = torch.FloatTensor(y_train_np).unsqueeze(1)
 
         val_documents = [item.summary for item in self.val_data]
-        X_val_np = self.vectorizer.transform(val_documents)
+        X_val_np = cast(csr_matrix, self.vectorizer.transform(val_documents))
         self.X_val = torch.FloatTensor(X_val_np.toarray())
         y_val_np = np.array([float(item.price) for item in self.val_data])
         self.y_val = torch.FloatTensor(y_val_np).unsqueeze(1)
@@ -99,7 +104,9 @@ class DeepNeuralNetworkRunner:
         self.y_val_norm = (y_val_log - self.y_mean) / self.y_std
 
         self.model = DeepNeuralNetwork(self.X_train.shape[1])
-        total_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        total_params = sum(
+            p.numel() for p in self.model.parameters() if p.requires_grad
+        )
         print(f"Deep Neural Network created with {total_params:,} parameters")
 
         if torch.cuda.is_available():
@@ -113,13 +120,20 @@ class DeepNeuralNetworkRunner:
 
         self.model.to(self.device)
         self.loss_function = nn.L1Loss()
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=0.001, weight_decay=0.01)
+        self.optimizer = optim.AdamW(
+            self.model.parameters(), lr=0.001, weight_decay=0.01
+        )
         self.scheduler = CosineAnnealingLR(self.optimizer, T_max=10, eta_min=0)
 
         self.train_dataset = TensorDataset(self.X_train, self.y_train_norm)
         self.train_loader = DataLoader(self.train_dataset, batch_size=64, shuffle=True)
 
     def train(self, epochs=5):
+        assert self.model is not None, "Call setup() before train()"
+        assert self.optimizer is not None, "Call setup() before train()"
+        assert self.scheduler is not None, "Call setup() before train()"
+        assert self.loss_function is not None, "Call setup() before train()"
+        assert self.train_loader is not None, "Call setup() before train()"
         for epoch in range(1, epochs + 1):
             self.model.train()
             train_losses = []
@@ -143,7 +157,9 @@ class DeepNeuralNetworkRunner:
             self.model.eval()
             with torch.no_grad():
                 val_outputs = self.model(self.X_val.to(self.device))
-                val_loss = self.loss_function(val_outputs, self.y_val_norm.to(self.device))
+                val_loss = self.loss_function(
+                    val_outputs, self.y_val_norm.to(self.device)
+                )
 
                 # Convert back to original scale for meaningful metrics
                 val_outputs_orig = torch.exp(val_outputs * self.y_std + self.y_mean) - 1
@@ -158,17 +174,21 @@ class DeepNeuralNetworkRunner:
             self.scheduler.step()
 
     def save(self, path):
+        assert self.model is not None, "Call setup() before save()"
         torch.save(self.model.state_dict(), path)
 
     def load(self, path, device="mps"):
+        assert self.model is not None, "Call setup() before load()"
         self.model.load_state_dict(torch.load(path, map_location=device))
         self.model.to(self.device)
 
     def inference(self, item):
+        assert self.model is not None, "Call setup() before inference()"
+        assert self.vectorizer is not None, "Call setup() before inference()"
         self.model.eval()
         with torch.no_grad():
-            vector = self.vectorizer.transform([item.summary])
-            vector = torch.FloatTensor(vector.toarray()).to(self.device)
+            sparse = cast(csr_matrix, self.vectorizer.transform([item.summary]))
+            vector = torch.FloatTensor(sparse.toarray()).to(self.device)
             pred = self.model(vector)[0]
             result = torch.exp(pred * self.y_std + self.y_mean) - 1
             result = result.item()

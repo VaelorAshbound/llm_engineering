@@ -3,6 +3,7 @@ Website summarizer using Ollama instead of OpenAI.
 """
 
 from openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
 from scraper import fetch_website_contents
 
 OLLAMA_BASE_URL = "http://localhost:11434/v1"
@@ -22,21 +23,20 @@ If it includes news or announcements, then summarize these too.
 """
 
 
-def messages_for(website):
+def messages_for(website) -> list[ChatCompletionMessageParam]:
     """Create message list for the LLM."""
     return [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt_prefix + website}
+        {"role": "user", "content": user_prompt_prefix + website},
     ]
 
 
 def summarize(url):
     """Fetch and summarize a website using Ollama."""
-    ollama = OpenAI(base_url=OLLAMA_BASE_URL, api_key='ollama')
+    ollama = OpenAI(base_url=OLLAMA_BASE_URL, api_key="ollama")
     website = fetch_website_contents(url)
     response = ollama.chat.completions.create(
-        model=MODEL,
-        messages=messages_for(website)
+        model=MODEL, messages=messages_for(website)
     )
     return response.choices[0].message.content
 

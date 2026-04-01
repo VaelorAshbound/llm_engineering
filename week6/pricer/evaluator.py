@@ -1,12 +1,14 @@
+import math
 import re
-from sklearn.metrics import mean_squared_error, r2_score
+from concurrent.futures import ThreadPoolExecutor
+from itertools import accumulate
+from typing import cast
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from itertools import accumulate
-import math
+from sklearn.metrics import mean_squared_error, r2_score
 from tqdm.notebook import tqdm
-from concurrent.futures import ThreadPoolExecutor
 
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
@@ -33,7 +35,12 @@ class Tester:
 
     @staticmethod
     def make_title(predictor) -> str:
-        return predictor.__name__.replace("__", ".").replace("_", " ").title().replace("Gpt", "GPT")
+        return (
+            predictor.__name__.replace("__", ".")
+            .replace("_", " ")
+            .title()
+            .replace("Gpt", "GPT")
+        )
 
     @staticmethod
     def post_process(value):
@@ -59,7 +66,11 @@ class Tester:
         truth = datapoint.price
         error = abs(guess - truth)
         color = self.color_for(error, truth)
-        title = datapoint.title if len(datapoint.title) <= 40 else datapoint.title[:40] + "..."
+        title = (
+            datapoint.title
+            if len(datapoint.title) <= 40
+            else datapoint.title[:40] + "..."
+        )
         return title, guess, truth, error, color
 
     def chart(self, title):
@@ -95,10 +106,11 @@ class Tester:
 
         # Assign customdata per trace (one color/category = one trace)
         for tr in fig.data:
-            mask = df["color"] == tr.name
-            tr.customdata = df.loc[mask, ["hover"]].to_numpy()
-            tr.hovertemplate = "%{customdata[0]}<extra></extra>"
-            tr.marker.update(size=6)
+            scatter = cast(go.Scatter, tr)
+            mask = df["color"] == scatter.name
+            scatter.customdata = df.loc[mask, ["hover"]].to_numpy()
+            scatter.hovertemplate = "%{customdata[0]}<extra></extra>"
+            scatter.update(marker={"size": 6})
 
         # Reference line y=x
         fig.add_trace(
@@ -133,7 +145,9 @@ class Tester:
         ]
 
         # 95% confidence interval for mean
-        ci = [1.96 * (sd / math.sqrt(i)) if i > 1 else 0 for i, sd in zip(x, running_stds)]
+        ci = [
+            1.96 * (sd / math.sqrt(i)) if i > 1 else 0 for i, sd in zip(x, running_stds)
+        ]
         upper = [m + c for m, c in zip(running_means, ci)]
         lower = [m - c for m, c in zip(running_means, ci)]
 

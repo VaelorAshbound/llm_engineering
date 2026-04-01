@@ -1,9 +1,10 @@
-import os
-from groq import Groq
-from dotenv import load_dotenv
-from pathlib import Path
 import json
+import os
 import pickle
+from pathlib import Path
+
+from dotenv import load_dotenv
+from groq import Groq
 from tqdm.notebook import tqdm
 
 load_dotenv(override=True)
@@ -37,9 +38,9 @@ class Batch:
         self.output_file_id = None
         self.done = False
         folder = Path("lite") if lite else Path("full")
-        self.batches = folder / BATCHES_FOLDER
+        self.batches_folder = folder / BATCHES_FOLDER
         self.output = folder / OUTPUT_FOLDER
-        self.batches.mkdir(parents=True, exist_ok=True)
+        self.batches_folder.mkdir(parents=True, exist_ok=True)
         self.output.mkdir(parents=True, exist_ok=True)
 
     def make_jsonl(self, item):
@@ -60,19 +61,20 @@ class Batch:
         return json.dumps(line)
 
     def make_file(self):
-        batch_file = self.batches / self.filename
+        batch_file = self.batches_folder / self.filename
         with batch_file.open("w") as f:
             for item in self.items[self.start : self.end]:
                 f.write(self.make_jsonl(item))
                 f.write("\n")
 
     def send_file(self):
-        batch_file = self.batches / self.filename
+        batch_file = self.batches_folder / self.filename
         with batch_file.open("rb") as f:
             response = groq.files.create(file=f, purpose="batch")
         self.file_id = response.id
 
     def submit_batch(self):
+        assert self.file_id is not None, "file_id is not set; call send_file() first"
         response = groq.batches.create(
             completion_window="24h",
             endpoint="/v1/chat/completions",
@@ -81,6 +83,9 @@ class Batch:
         self.batch_id = response.id
 
     def is_ready(self):
+        assert self.batch_id is not None, (
+            "batch_id is not set; call submit_batch() first"
+        )
         response = groq.batches.retrieve(self.batch_id)
         status = response.status
         if status == "completed":
@@ -88,6 +93,9 @@ class Batch:
         return status == "completed"
 
     def fetch_output(self):
+        assert self.output_file_id is not None, (
+            "output_file_id is not set; batch not yet completed"
+        )
         output_file = str(self.output / self.filename)
         response = groq.files.content(self.output_file_id)
         response.write_to_file(output_file)
@@ -98,7 +106,9 @@ class Batch:
             for line in f:
                 json_line = json.loads(line)
                 id = int(json_line["custom_id"])
-                summary = json_line["response"]["body"]["choices"][0]["message"]["content"]
+                summary = json_line["response"]["body"]["choices"][0]["message"][
+                    "content"
+                ]
                 self.items[id].summary = summary
         self.done = True
 

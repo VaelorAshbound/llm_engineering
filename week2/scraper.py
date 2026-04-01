@@ -1,6 +1,5 @@
-from bs4 import BeautifulSoup
 import requests
-
+from bs4 import BeautifulSoup
 
 # Standard headers to fetch a website
 headers = {
@@ -15,7 +14,7 @@ def fetch_website_contents(url):
     """
     response = requests.get(url, headers=headers)
     soup = BeautifulSoup(response.content, "html.parser")
-    title = soup.title.string if soup.title else "No title found"
+    title = soup.title.string if soup.title and soup.title.string else "No title found"
     if soup.body:
         for irrelevant in soup.body(["script", "style", "img", "input"]):
             irrelevant.decompose()

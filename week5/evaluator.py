@@ -1,9 +1,10 @@
+from collections import defaultdict
+
 import gradio as gr
 import pandas as pd
-from collections import defaultdict
 from dotenv import load_dotenv
-
-from evaluation.eval import evaluate_all_retrieval, evaluate_all_answers
+from evaluation.eval import evaluate_all_answers, evaluate_all_retrieval
+from gradio.themes import Soft
 
 load_dotenv(override=True)
 
@@ -163,7 +164,9 @@ def run_answer_evaluation(progress=gr.Progress()):
     category_data = []
     for category, accuracy_scores in category_accuracy.items():
         avg_cat_accuracy = sum(accuracy_scores) / len(accuracy_scores)
-        category_data.append({"Category": category, "Average Accuracy": avg_cat_accuracy})
+        category_data.append(
+            {"Category": category, "Average Accuracy": avg_cat_accuracy}
+        )
 
     df = pd.DataFrame(category_data)
 
@@ -172,11 +175,13 @@ def run_answer_evaluation(progress=gr.Progress()):
 
 def main():
     """Launch the Gradio evaluation app."""
-    theme = gr.themes.Soft(font=["Inter", "system-ui", "sans-serif"])
+    theme = Soft(font=["Inter", "system-ui", "sans-serif"])
 
     with gr.Blocks(title="RAG Evaluation Dashboard", theme=theme) as app:
         gr.Markdown("# 📊 RAG Evaluation Dashboard")
-        gr.Markdown("Evaluate retrieval and answer quality for the Insurellm RAG system")
+        gr.Markdown(
+            "Evaluate retrieval and answer quality for the Insurellm RAG system"
+        )
 
         # RETRIEVAL SECTION
         gr.Markdown("## 🔍 Retrieval Evaluation")

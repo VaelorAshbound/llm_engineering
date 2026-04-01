@@ -1,13 +1,14 @@
-from pathlib import Path
-from openai import OpenAI
-from dotenv import load_dotenv
-from pydantic import BaseModel, Field
-from chromadb import PersistentClient
-from tqdm import tqdm
-from litellm import completion
 from multiprocessing import Pool
-from tenacity import retry, wait_exponential
+from pathlib import Path
+from typing import Any, cast
 
+from chromadb import PersistentClient
+from dotenv import load_dotenv
+from litellm import completion
+from openai import OpenAI
+from pydantic import BaseModel, Field
+from tenacity import retry, wait_exponential
+from tqdm import tqdm
 
 load_dotenv(override=True)
 
@@ -45,7 +46,11 @@ class Chunk(BaseModel):
     def as_result(self, document):
         metadata = {"source": document["source"], "type": document["type"]}
         return Result(
-            page_content=self.headline + "\n\n" + self.summary + "\n\n" + self.original_text,
+            page_content=self.headline
+            + "\n\n"
+            + self.summary
+            + "\n\n"
+            + self.original_text,
             metadata=metadata,
         )
 
@@ -63,7 +68,9 @@ def fetch_documents():
         doc_type = folder.name
         for file in folder.rglob("*.md"):
             with open(file, "r", encoding="utf-8") as f:
-                documents.append({"type": doc_type, "source": file.as_posix(), "text": f.read()})
+                documents.append(
+                    {"type": doc_type, "source": file.as_posix(), "text": f.read()}
+                )
 
     print(f"Loaded {len(documents)} documents")
     return documents
@@ -103,8 +110,11 @@ def make_messages(document):
 @retry(wait=wait)
 def process_document(document):
     messages = make_messages(document)
-    response = completion(model=MODEL, messages=messages, response_format=Chunks)
+    response = cast(
+        Any, completion(model=MODEL, messages=messages, response_format=Chunks)
+    )
     reply = response.choices[0].message.content
+    assert reply is not None, "Expected non-None content from completion"
     doc_as_chunks = Chunks.model_validate_json(reply).chunks
     return [chunk.as_result(document) for chunk in doc_as_chunks]
 
@@ -116,7 +126,9 @@ def create_chunks(documents):
     """
     chunks = []
     with Pool(processes=WORKERS) as pool:
-        for result in tqdm(pool.imap_unordered(process_document, documents), total=len(documents)):
+        for result in tqdm(
+            pool.imap_unordered(process_document, documents), total=len(documents)
+        ):
             chunks.extend(result)
     return chunks
 
@@ -135,7 +147,7 @@ def create_embeddings(chunks):
     ids = [str(i) for i in range(len(chunks))]
     metas = [chunk.metadata for chunk in chunks]
 
-    collection.add(ids=ids, embeddings=vectors, documents=texts, metadatas=metas)
+    collection.add(ids=ids, embeddings=vectors, documents=texts, metadatas=metas)  # type: ignore[arg-type]
     print(f"Vectorstore created with {collection.count()} documents")
 
 
