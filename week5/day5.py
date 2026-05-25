@@ -48,7 +48,7 @@ openai = OpenAI()
 # Inspired by LangChain's Document - let's have something similar
 
 
-class Result(BaseModel):
+class Document(BaseModel):
     page_content: str
     metadata: dict
 
@@ -70,9 +70,9 @@ class Chunk(BaseModel):
         description="The original text of this chunk from the provided document, exactly as is, not changed in any way"
     )
 
-    def as_result(self, document):
+    def as_document(self, document):
         metadata = {"source": document["source"], "type": document["type"]}
-        return Result(
+        return Document(
             page_content=self.headline
             + "\n\n"
             + self.summary
@@ -184,7 +184,7 @@ def process_document(document):
     )
     reply = cast(Choices, response.choices[0]).message.content or ""
     doc_as_chunks = Chunks.model_validate_json(reply).chunks
-    return [chunk.as_result(document) for chunk in doc_as_chunks]
+    return [chunk.as_document(document) for chunk in doc_as_chunks]
 
 
 # %%
@@ -402,7 +402,7 @@ def fetch_context_unranked(question):
     metas = results["metadatas"]
     assert docs is not None and metas is not None
     for result in zip(docs[0], metas[0]):
-        chunks.append(Result(page_content=result[0], metadata=dict(result[1])))
+        chunks.append(Document(page_content=result[0], metadata=dict(result[1])))
     return chunks
 
 

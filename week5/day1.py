@@ -75,9 +75,17 @@ knowledge = {}
 
 filenames = glob.glob("knowledge-base/employees/*")
 
+print(filenames)
+
 for filename in filenames:
+    # If file name is "Alex Chen.md", this will extract "Chen"
     name = Path(filename).stem.split(" ")[-1]
     with open(filename, "r", encoding="utf-8") as f:
+        # File contents are stored in the dictionary with the key "chen" (lowercase)
+        # Eg: knowledge["chen"] = "Alex Chen is a software engineer at Insurellm..."
+        # {
+        #   "chen": "Alex Chen is a software engineer at Insurellm...",
+        # }
         knowledge[name.lower()] = f.read()
 
 

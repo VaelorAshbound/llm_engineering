@@ -256,10 +256,10 @@ def chat(history):  # type: ignore[reportRedefinition]
         )
 
     reply = response.choices[0].message.content
-    history += [{"role": "assistant", "content": reply}]
-
     voice = talker(reply)
-
+    history += [{"role": "assistant", "content": reply}]
+    # gr.Blocks doesn't manage history automatically like gr.ChatInterface does,
+    # so we receive the full history and must return it with the assistant reply appended.
     if cities:
         image = artist(cities[0])
 

@@ -64,7 +64,7 @@ else:
 headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
 payload = {
-    "model": "gpt-5-nano",
+    "model": "gpt-4o-mini",
     "messages": [{"role": "user", "content": "Tell me a fun fact"}],
 }
 
@@ -106,7 +106,7 @@ response.json()["choices"][0]["message"]["content"]
 openai = OpenAI()
 
 response = openai.chat.completions.create(
-    model="gpt-5-nano", messages=[{"role": "user", "content": "Tell me a fun fact"}]
+    model="gpt-4o-mini", messages=[{"role": "user", "content": "Tell me a fun fact"}]
 )
 
 response.choices[0].message.content
@@ -170,14 +170,14 @@ else:
 # %%
 
 
-gemini = OpenAI(base_url=GEMINI_BASE_URL, api_key=google_api_key)
+# gemini = OpenAI(base_url=GEMINI_BASE_URL, api_key=google_api_key)
 
-response = gemini.chat.completions.create(
-    model="gemini-2.5-flash-lite",
-    messages=[{"role": "user", "content": "Tell me a fun fact"}],
-)
+# response = gemini.chat.completions.create(
+#    model="gemini-2.5-flash-lite",
+#    messages=[{"role": "user", "content": "Tell me a fun fact"}],
+# )
 
-response.choices[0].message.content
+# response.choices[0].message.content
 
 
 # ## And Ollama also gives an OpenAI compatible endpoint
@@ -201,7 +201,7 @@ requests.get("http://localhost:11434").content
 # %%
 
 
-os.system("ollama pull llama3.2")
+# os.system("ollama pull llama3.2")
 
 
 # %%
@@ -218,7 +218,7 @@ ollama = OpenAI(base_url=OLLAMA_BASE_URL, api_key="ollama")
 # Get a fun fact
 
 response = ollama.chat.completions.create(
-    model="llama3.2", messages=[{"role": "user", "content": "Tell me a fun fact"}]
+    model="llama3.2:3b", messages=[{"role": "user", "content": "Tell me a fun fact"}]
 )
 
 response.choices[0].message.content
@@ -229,18 +229,18 @@ response.choices[0].message.content
 
 # Now let's try deepseek-r1:1.5b - this is DeepSeek "distilled" into Qwen from Alibaba Cloud
 
-os.system("ollama pull deepseek-r1:1.5b")
+# os.system("ollama pull deepseek-r1:1.5b")
 
 
 # %%
 
 
-response = ollama.chat.completions.create(
-    model="deepseek-r1:1.5b",
-    messages=[{"role": "user", "content": "Tell me a fun fact"}],
-)
+# response = ollama.chat.completions.create(
+#    model="deepseek-r1:1.5b",
+#    messages=[{"role": "user", "content": "Tell me a fun fact"}],
+# )
 
-response.choices[0].message.content
+# response.choices[0].message.content
 
 
 # # HOMEWORK EXERCISE ASSIGNMENT

@@ -10,9 +10,15 @@ headers = {
 def fetch_website_contents(url):
     """
     Return the title and contents of the website at the given url;
-    truncate to 2,000 characters as a sensible limit
+    truncate to 2,000 characters as a sensible limit.
+    Returns an empty string if the URL cannot be reached.
     """
-    response = requests.get(url, headers=headers)
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f"Warning: Could not fetch {url} — {e}")
+        return ""
     soup = BeautifulSoup(response.content, "html.parser")
     title = (
         str(soup.title.string)

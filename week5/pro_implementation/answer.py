@@ -95,19 +95,19 @@ def make_rag_messages(question, history, chunks):
 def rewrite_query(question, history=[]):
     """Rewrite the user's question to be a more specific question that is more likely to surface relevant content in the Knowledge Base."""
     message = f"""
-You are in a conversation with a user, answering questions about the company Insurellm.
-You are about to look up information in a Knowledge Base to answer the user's question.
+    You are in a conversation with a user, answering questions about the company Insurellm.
+    You are about to look up information in a Knowledge Base to answer the user's question.
 
-This is the history of your conversation so far with the user:
-{history}
+    This is the history of your conversation so far with the user:
+    {history}
 
-And this is the user's current question:
-{question}
+    And this is the user's current question:
+    {question}
 
-Respond only with a short, refined question that you will use to search the Knowledge Base.
-It should be a VERY short specific question most likely to surface content. Focus on the question details.
-IMPORTANT: Respond ONLY with the precise knowledgebase query, nothing else.
-"""
+    Respond only with a short, refined question that you will use to search the Knowledge Base.
+    It should be a VERY short specific question most likely to surface content. Focus on the question details.
+    IMPORTANT: Respond ONLY with the precise knowledgebase query, nothing else.
+    """
     response = cast(
         Any, completion(model=MODEL, messages=[{"role": "system", "content": message}])
     )

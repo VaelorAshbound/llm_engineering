@@ -172,11 +172,15 @@ def chat(message, history):  # type: ignore[reportRedefinition]
 
 
 def handle_tool_call(message):
+    print(message)
     tool_call = message.tool_calls[0]
     response: dict = {}
-    if tool_call.function.name == "get_ticket_price":
-        arguments = json.loads(tool_call.function.arguments)
-        city = arguments.get("destination_city")
+    function = tool_call.function
+    function_name = function.name
+    function_arguments = function.arguments
+    parsed_arguments = json.loads(function_arguments)
+    if function_name == "get_ticket_price":
+        city = parsed_arguments.get("destination_city")
         price_details = get_ticket_price(city)
         response = {
             "role": "tool",
