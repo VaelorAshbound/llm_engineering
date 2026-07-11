@@ -1,3 +1,8 @@
+"""Groq batch orchestration. Same flow as batch.py, but the prompt / model /
+message construction is imported from preprocessorb (single source of truth)
+rather than re-declared here.
+"""
+
 import json
 import os
 import pickle
@@ -5,22 +10,15 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from groq import Groq
+from pricer.preprocessorb import MODEL, REASONING_EFFORT, messages_for
 from tqdm.notebook import tqdm
 
 load_dotenv(override=True)
 groq = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
-MODEL = "openai/gpt-oss-20b"
 BATCHES_FOLDER = "batches"
 OUTPUT_FOLDER = "output"
 state = Path("batches.pkl")
-
-SYSTEM_PROMPT = """Create a concise description of a product. Respond only in this format. Do not include part numbers.
-Title: Rewritten short precise title
-Category: eg Electronics
-Brand: Brand name
-Description: 1 sentence description
-Details: 1 sentence on features"""
 
 
 # --- Note: self vs cls (instance methods vs @classmethod) ---------------------
@@ -67,19 +65,15 @@ class Batch:
         self.output.mkdir(parents=True, exist_ok=True)
 
     def make_jsonl(self, item):
-        body = {
-            "model": MODEL,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": item.full},
-            ],
-            "reasoning_effort": "low",
-        }
         line = {
             "custom_id": str(item.id),
             "method": "POST",
             "url": "/v1/chat/completions",
-            "body": body,
+            "body": {
+                "model": MODEL,
+                "messages": messages_for(item.full),
+                "reasoning_effort": REASONING_EFFORT,
+            },
         }
         return json.dumps(line)
 
@@ -110,18 +104,16 @@ class Batch:
             "batch_id is not set; call submit_batch() first"
         )
         response = groq.batches.retrieve(self.batch_id)
-        status = response.status
-        if status == "completed":
+        if response.status == "completed":
             self.output_file_id = response.output_file_id
-        return status == "completed"
+        return response.status == "completed"
 
     def fetch_output(self):
         assert self.output_file_id is not None, (
             "output_file_id is not set; batch not yet completed"
         )
         output_file = str(self.output / self.filename)
-        response = groq.files.content(self.output_file_id)
-        response.write_to_file(output_file)
+        groq.files.content(self.output_file_id).write_to_file(output_file)
 
     def apply_output(self):
         output_file = str(self.output / self.filename)
@@ -139,8 +131,7 @@ class Batch:
     def create(cls, items, lite):
         for start in range(0, len(items), cls.BATCH_SIZE):
             end = min(start + cls.BATCH_SIZE, len(items))
-            batch = cls(items, start, end, lite)
-            cls.batches.append(batch)
+            cls.batches.append(cls(items, start, end, lite))
         print(f"Created {len(cls.batches)} batches")
 
     @classmethod
@@ -154,10 +145,9 @@ class Batch:
     @classmethod
     def fetch(cls):
         for batch in tqdm(cls.batches):
-            if not batch.done:
-                if batch.is_ready():
-                    batch.fetch_output()
-                    batch.apply_output()
+            if not batch.done and batch.is_ready():
+                batch.fetch_output()
+                batch.apply_output()
         finished = [batch for batch in cls.batches if batch.done]
         print(f"Finished {len(finished)} of {len(cls.batches)} batches")
 

@@ -4,13 +4,13 @@ from typing import Any, cast
 
 from dotenv import load_dotenv
 from evaluation.test import TestQuestion, load_tests
-from implementation.answer import answer_question, fetch_context
 from litellm import completion
+from pro_implementation.answer2 import answer_question, fetch_context
 from pydantic import BaseModel, Field
 
 load_dotenv(override=True)
 
-MODEL = "gpt-4.1-nano"
+MODEL = "openrouter/openai/gpt-4.1-nano"
 db_name = "vector_db"
 
 

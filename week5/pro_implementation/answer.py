@@ -1,26 +1,28 @@
+import os
 from pathlib import Path
 from typing import Any, cast
 
 from chromadb import PersistentClient
 from dotenv import load_dotenv
-from litellm import completion
-from openai import OpenAI
+from litellm import completion, embedding
 from pydantic import BaseModel, Field
 from tenacity import retry, wait_exponential
 
 load_dotenv(override=True)
 
 # MODEL = "openai/gpt-4.1-nano"
-MODEL = "groq/openai/gpt-oss-120b"
+MODEL = "openrouter/openai/gpt-4.1-nano"
+
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DB_NAME = str(Path(__file__).parent.parent / "preprocessed_db")
 KNOWLEDGE_BASE_PATH = Path(__file__).parent.parent / "knowledge-base"
 SUMMARIES_PATH = Path(__file__).parent.parent / "summaries"
 
 collection_name = "docs"
-embedding_model = "text-embedding-3-large"
+embedding_model = "openai/text-embedding-3-large"
 wait = wait_exponential(multiplier=1, min=10, max=240)
 
-openai = OpenAI()
 
 chroma = PersistentClient(path=DB_NAME)
 collection = chroma.get_or_create_collection(collection_name)
@@ -126,18 +128,21 @@ def merge_chunks(chunks, reranked):
 
 
 def fetch_context_unranked(question):
-    query = (
-        openai.embeddings.create(model=embedding_model, input=[question])
-        .data[0]
-        .embedding
-    )
-    results = collection.query(query_embeddings=[query], n_results=RETRIEVAL_K)
-    chunks = []
-    documents = results["documents"] or []
-    metadatas = results["metadatas"] or []
-    for result in zip(documents[0], metadatas[0]):
-        chunks.append(Result(page_content=result[0], metadata=dict(result[1])))  # type: ignore[arg-type]
-    return chunks
+    embeddings = embedding(
+        model=embedding_model,
+        input=[question],
+        api_key=OPENROUTER_API_KEY,
+        api_base=OPENROUTER_BASE_URL,
+    ).data[0]["embedding"]
+
+    results = collection.query(query_embeddings=[embeddings], n_results=RETRIEVAL_K)
+    documents = (results["documents"] or [[]])[0]
+    metadatas = (results["metadatas"] or [[]])[0]
+
+    return [
+        Result(page_content=document, metadata=dict(metadata))
+        for document, metadata in zip(documents, metadatas)
+    ]
 
 
 def fetch_context(original_question):

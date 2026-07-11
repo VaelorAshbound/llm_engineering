@@ -1,7 +1,7 @@
 import gradio as gr
 from dotenv import load_dotenv
 from gradio.themes import Soft
-from implementation.answer import answer_question
+from pro_implementation.answer2 import answer_question
 
 load_dotenv(override=True)
 
@@ -10,7 +10,7 @@ def format_context(context):
     result = "<h2 style='color: #ff7800;'>Relevant Context</h2>\n\n"
     for doc in context:
         result += (
-            f"<span style='color: #ff7800;'>Source: {doc.metadata['source']}</span>\n\n"
+            f"<span style='color: #ff7800;'>Source: {doc.metadata.source}</span>\n\n"
         )
         result += doc.page_content + "\n\n"
     return result

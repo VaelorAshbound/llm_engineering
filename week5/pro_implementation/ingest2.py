@@ -1,156 +1,278 @@
+# 1 Do Imports
+# 2 Do Settings
+# 3 Create Classes (done)
+# 4 Fetch Documents (done)
+# 5 Make Prompt (done)
+# 6 Make Messages (done)
+# 7 Process Documents
+# 8 Create Chunks
+# 9 Create Embeddings
+
+# %%
+import math
+import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import cast
 
 from chromadb import PersistentClient
 from dotenv import load_dotenv
-from litellm import completion
+from litellm import completion, embedding
 from litellm.types.utils import Choices, ModelResponse
-from openai import OpenAI
 from pydantic import BaseModel, Field
+from tenacity import retry, retry_if_not_exception_type, wait_exponential
+from tqdm import tqdm
 
-load_dotenv(override=True)
-OPENAI = OpenAI()
-MODEL = "gpt-4.1-mini"
-KNOWLEDGE_BASE_PATH = Path(__file__).parent.parent / "knowledge-base"
-DB_NAME = "knowledge_base"
+load_dotenv()
+
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+try:
+    KNOWLEDGE_BASE = Path(__file__).parent.parent / "knowledge-base"
+    DB_NAME = str(Path(__file__).parent.parent / "preprocessed_db")
+except NameError:
+    KNOWLEDGE_BASE = Path.cwd().parent / "knowledge-base"
+    DB_NAME = str(Path.cwd().parent / "preprocessed_db")
+
 COLLECTION_NAME = "docs"
-AVG_CHUNK_SIZE = 500
+
+MODEL = "openrouter/deepseek/deepseek-v4-flash"
+EMBEDDING_MODEL = "openai/text-embedding-3-large"
+
+TARGET_WORDS = 200  # aim for ~200-word chunks
+OVERLAP_WORDS = 50  # ~25% overlap between adjacent chunks
+MAX_OUTPUT_TOKENS = 32000
+
+WORKERS = 4
+
+WAIT = wait_exponential(multiplier=1, min=10, max=240)
+
+SYSTEM_PROMPT = """
+    ## GOAL
+    You are a precision document analyst for InsureLLM, an insurance technology company. Your sole purpose is to transform a single structured document into a set of semantically coherent chunks — each enriched with a headline and a summary — to power downstream search, retrieval, and knowledge-base indexing. Every chunk you produce must be accurate, self-contained, and faithful to the source text.
+
+    ---
+
+    ## INFORMATION
+
+    ### About InsureLLM
+    InsureLLM is an insurance technology company. Documents you will process belong to the InsureLLM knowledge corpus and may cover products, contracts, employees etc.
+
+    Document type context matters. A contract should be chunked by clause. A product doc by feature or section. An employee profile by area (bio, role, skills, etc.). Apply judgment based on `type`.
+
+    ### Input Document Structure
+    You will receive the document in the user message containing:
+    - `type`: the document category
+    - `source`: the file path the document belongs to
+    - `text`: the full raw content to be chunked, with every line prefixed by its 1-indexed line number in the form `<n>: <line content>`
+
+    ### Chunking Rules
+    1. **Semantic boundaries first**: Split at natural boundaries — sections, paragraphs, clauses, bullet groups, topics — never mid-sentence or mid-clause.
+    2. **Self-contained meaning**: Each chunk must make sense in isolation without requiring other chunks for basic comprehension.
+    3. **No fabrication**: Headlines and summaries must derive entirely from the original text. Do not infer, embellish, or add external knowledge.
+    4. **Report line numbers, never copy text**: You identify each chunk by the first and last source line it spans (`start_line` and `end_line`, 1-indexed and inclusive). You must NOT reproduce, copy, paraphrase, or normalize the source text anywhere in your output — the original text is reconstructed downstream directly from the line numbers you report. The `<n>:` prefixes are reference markers only, not part of the content.
+    5. **Target ~{target_words} words per chunk**: Size each chunk at roughly {target_words} words, always cutting at natural boundaries (sections, paragraphs, clauses) rather than at an exact word count. This document should yield at least {min_chunks} chunks — produce more if its structure warrants, never fewer. Do not pad or fragment mid-thought to hit a number; the word target is guidance, the natural boundary wins.
+    6. **Minimum chunk size**: A chunk must contain at least one meaningful, complete sentence or clause. Do not create single-word or trivial chunks.
+    7. **Overlap between chunks**: Adjacent chunks must overlap by about {overlap_words} words (~25% of a chunk). Set each chunk's `start_line` a few lines before the previous chunk's `end_line` so the boundary line(s) appear in both chunks — the same text in two chunks improves retrieval.
+    8. **Exhaustive coverage**: Every source line must be covered by at least one chunk. The first chunk must start at line 1, the last chunk must end at the final line, and consecutive chunks must not leave gaps (chunk N's `start_line` ≤ chunk N-1's `end_line` + 1).
+
+    ---
+
+    ## ACTION
+
+    Follow this exact process for every document:
+
+    **Step 1 — Understand the document**
+    Read the full `text`. Identify the document `type`, its overall topic, and its internal structure (headings, sections, numbered clauses, paragraph breaks, lists, etc.).
+
+    **Step 2 — Plan chunk boundaries**
+    Before writing output, mentally identify where the natural semantic breaks are. For each candidate chunk, confirm it:
+    - Is self-contained
+    - Does not split a logical unit (a clause, a list, a paragraph)
+    - Would not benefit from being merged with an adjacent chunk (avoid micro-chunks)
+
+    **Step 3 — Generate each chunk**
+    For each planned chunk, produce:
+    - `headline`: A concise title (5–10 words) that identifies what this chunk is about. Written in title case. Must be informative, not generic (e.g., not "Section 1" or "Introduction").
+    - `summary`: 1–3 sentences that distill the key information in the chunk. Written for a reader who needs to decide if this chunk is relevant to their query. Do not copy the original text verbatim here — rephrase concisely.
+    - `start_line`: The 1-indexed number of the first source line this chunk covers (inclusive).
+    - `end_line`: The 1-indexed number of the last source line this chunk covers (inclusive). Must be ≥ `start_line`.
+
+    **Step 4 — Validate before output**
+    Before finalizing, verify:
+    - Each chunk is roughly {target_words} words (a natural boundary always overrides exact size)
+    - Total chunk count is at least {min_chunks}
+    - Adjacent chunks overlap by about {overlap_words} words (next `start_line` sits a few lines before the previous `end_line`)
+    - No source line has been omitted — the chunks in order span from line 1 to the final line with no gaps (overlaps expected)
+
+"""
+
+USER_PROMPT = """
+    Process the following InsureLLM document and return chunks. Follow all rules defined in your instructions exactly.
+
+    Document:
+    - `type`: {type}
+    - `source`: {source}
+    - `text` (each line prefixed with its 1-indexed line number as `<n>: `):
+{text}
+"""
 
 
-class Results(BaseModel):
+class Documents(BaseModel):
+    source: str = Field(description="The file path the document belongs to")
+    type: str = Field(description="The document category")
+    text: str = Field(description="The full raw content of the document")
+
+
+class Metadata(BaseModel):
+    source: str = Field(description="The file path the document belongs to")
+    type: str = Field(description="The document category")
+
+
+class Result(BaseModel):
     page_content: str = Field(
-        description="""
-        A chunk of text based on the provided document, that is most likely to be surfaced in a query.
-        It includes a headline, a summary, and the original text of the chunk.
-        """
+        description="Contains headline, summary, and original text of the chunk"
     )
-    metadata: dict = Field(
-        description="Metadata about the chunk, including the source and type of the original document"
-    )
+    metadata: Metadata
 
 
 class Chunk(BaseModel):
     headline: str = Field(
-        description="A brief heading for this chunk, typically a few words, that is most likely to be surfaced in a query",
+        description="A short, specific title (max 10 words) capturing the chunk's main topic"
     )
     summary: str = Field(
-        description="A few sentences summarizing the content of this chunk to answer common questions"
+        description="A 2–3 sentence description of what the chunk covers, written in third-person"
     )
-    original_text: str = Field(
-        description="The original text of this chunk from the provided document, exactly as is, not changed in any way"
+    start_line: int = Field(
+        description="1-indexed number of the first source line this chunk covers (inclusive)"
+    )
+    end_line: int = Field(
+        description="1-indexed number of the last source line this chunk covers (inclusive)"
     )
 
-    def as_result(self, document):
-        metadata = {"source": document["source"], "type": document["type"]}
-        return Results(
-            page_content=self.headline
-            + "\n\n"
-            + self.summary
-            + "\n\n"
-            + self.original_text,
+    def to_result(self, document: Documents):
+        # Reconstruct the verbatim text in code by slicing the source lines,
+        # so the stored content is byte-identical to the source — the model
+        # only ever reports line numbers, never copies text.
+        lines = document.text.splitlines()
+        start = max(1, self.start_line)
+        end = min(len(lines), self.end_line)
+        original_text = "\n".join(lines[start - 1 : end])
+
+        metadata: Metadata = Metadata(source=document.source, type=document.type)
+        result: Result = Result(
+            page_content=self.headline + "\n\n" + self.summary + "\n\n" + original_text,
             metadata=metadata,
         )
+        return result
 
 
 class Chunks(BaseModel):
-    chunks: list[Chunk] = Field(
-        description="A list of chunks extracted from the provided document"
-    )
+    chunks: list[Chunk]
 
 
 def fetch_documents():
-    """A homemade version of the LangChain DirectoryLoader"""
+    documents: list[Documents] = []
 
-    documents = []
-
-    for folder in KNOWLEDGE_BASE_PATH.iterdir():
+    for folder in KNOWLEDGE_BASE.iterdir():
         doc_type = folder.name
         for file in folder.rglob("*.md"):
-            file_path = file.as_posix()
+            source = file.as_posix()
             with open(file, "r", encoding="utf-8") as f:
-                content = f.read()
-                documents.append(
-                    {"type": doc_type, "source": file_path, "text": content}
-                )
+                text = f.read()
+                documents.append(Documents(type=doc_type, source=source, text=text))
+
     return documents
 
 
-def make_prompt(document):
-    how_many = (len(document["text"]) // AVG_CHUNK_SIZE) + 1
-    return f"""
-    You are an expert document splitter. Your duty is to take a document and split it into {how_many} chunks for a KnowledgeBase.
+def make_messages(document: Documents):
+    words = len(document.text.split())  # total words
+    chunk_size = TARGET_WORDS  # words per chunk
+    overlap = OVERLAP_WORDS  # words shared between neighbours
+    step = chunk_size - overlap  # new words per chunk
 
-    Here is the context so that you can understand the document:
-    1. The document is a markdown file that contains information about a specific topic related to Insurellm.
-    2. The document is from the shared drive of a company called Insurellm.
-    3. The document is of type: {document["type"]}
-    4. The document has been retrieved from: {document["source"]}
+    if words <= chunk_size:
+        num_chunks = 1  # whole doc fits in one chunk
+    else:
+        # first is different as it has no overlap
+        leftover = words - chunk_size  # words after the first chunk
+        extra_chunks = math.ceil(leftover / step)  # round UP to cover them all
+        num_chunks = 1 + extra_chunks  # +1 for that first chunk
+    system_prompt = SYSTEM_PROMPT.format(
+        target_words=TARGET_WORDS,
+        overlap_words=OVERLAP_WORDS,
+        min_chunks=num_chunks,
+    )
+    numbered_text = "\n".join(
+        f"{i}: {line}" for i, line in enumerate(document.text.splitlines(), start=1)
+    )
+    user_prompt = USER_PROMPT.format(
+        type=document.type, source=document.source, text=numbered_text
+    )
 
-    The process is as follows:
-    1. Read the document and understand its content.
-    2. Split the document into {how_many} overlapping chunks, where each chunk is approximately {AVG_CHUNK_SIZE} characters long.
-    3. For each chunk, create a headline that captures the main topic of the chunk, typically a few words, that is most likely to be surfaced in a query.
-    4. For each chunk, write a summary of a few sentences summarizing the content of the chunk to answer common questions.
-    5. For each chunk, include the original text of the chunk from the provided document, exactly as is, not changed in any way.
-
-    The rules are as follows:
-    1. The chunks should be overlapping, meaning that the end of one chunk should overlap with the
-        beginning of the next chunk to ensure that important information is not lost between chunks.
-    2. The headline should be concise and informative, capturing the essence of the chunk's content.
-    3. The summary should be clear and concise,
-        providing a quick overview of the chunk's content to help users understand what information
-        is contained in the chunk without having to read the entire original text.
-    4. The original text should be included in its entirety for each chunk, without any modifications,
-        to ensure that the full context is preserved for users who want to read the original content.
-
-    Finally, here is the document that you need to split into chunks:
-    {document["text"]}
-
-    """
-
-
-def generate_messages(document):
-    user_prompt = make_prompt(document)
     return [
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
 
 
+@retry(wait=WAIT, retry=retry_if_not_exception_type(RuntimeError))
 def process_document(document):
-    messages = generate_messages(document)
+    message = make_messages(document)
     response = cast(
         ModelResponse,
-        completion(model=MODEL, messages=messages, response_format=Chunks),
+        completion(
+            model=MODEL,
+            response_format=Chunks,
+            messages=message,
+            temperature=0.1,
+            max_tokens=MAX_OUTPUT_TOKENS,
+        ),
     )
-    result = cast(Choices, response.choices[0]).message.content or ""
-    assert result is not None, "Expected non-None content from completion"
-    doc_as_chunks = Chunks.model_validate_json(result).chunks
-    return [chunk.as_result(document) for chunk in doc_as_chunks]
+    choice = cast(Choices, response.choices[0])
+    reply = choice.message.content or ""
+    chunks = Chunks.model_validate_json(reply).chunks
+    result = [chunk.to_result(document) for chunk in chunks]
+    print(result)
+    return result
 
 
-def create_chunks(documents):
-    all_chunks = []
-    for document in documents:
-        chunks = process_document(document)
-        all_chunks.extend(chunks)
-    return all_chunks
+def process_documents(documents):
+    results = []
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        for result in tqdm(pool.map(process_document, documents), total=len(documents)):
+            results.extend(result)
+    return results
 
 
 def create_embeddings(chunks):
-    chroma = PersistentClient(path=DB_NAME)
-    if COLLECTION_NAME in [c.name for c in chroma.list_collections()]:
-        chroma.delete_collection(name=COLLECTION_NAME)
+    chroma_client = PersistentClient(path=DB_NAME)
+    if COLLECTION_NAME in [
+        collection.name for collection in chroma_client.list_collections()
+    ]:
+        chroma_client.delete_collection(COLLECTION_NAME)
 
-    collection = chroma.get_or_create_collection(name=COLLECTION_NAME)
-    ids = [str(i) for i in range(len(chunks))]
-    metas = [chunk.metadata for chunk in chunks]
-    texts = [chunk.page_content for chunk in chunks]
-    embeddings = OPENAI.embeddings.create(model=MODEL, input=texts).data
-    vectors = [e.embedding for e in embeddings]
-    collection.add(ids=ids, metadatas=metas, documents=texts, embeddings=vectors)  # type: ignore
+    collection = chroma_client.get_or_create_collection(COLLECTION_NAME)
+
+    ids = [str(chunk) for chunk in range(len(chunks))]
+    page_contents = [chunk.page_content for chunk in chunks]
+    metadatas = [chunk.metadata.model_dump() for chunk in chunks]
+
+    response = embedding(
+        model=EMBEDDING_MODEL,
+        input=page_contents,
+        api_base=OPENROUTER_BASE_URL,
+        api_key=OPENROUTER_API_KEY,
+    )
+    vectors = [data["embedding"] for data in response.data]
+
+    collection.add(
+        ids=ids, embeddings=vectors, metadatas=metadatas, documents=page_contents
+    )
 
 
 if __name__ == "__main__":
     documents = fetch_documents()
-    chunks = create_chunks(documents)
+    chunks = process_documents(documents)
     create_embeddings(chunks)

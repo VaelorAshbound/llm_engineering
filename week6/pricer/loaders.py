@@ -1,6 +1,5 @@
 import os
 from concurrent.futures import ProcessPoolExecutor
-from datetime import datetime
 from typing import Optional
 
 from datasets import Dataset, load_dataset
@@ -60,8 +59,6 @@ class ItemLoader:
         Load in this dataset; the workers parameter specifies how many processes
         should work on loading and scrubbing the data
         """
-        start = datetime.now()
-        print(f"Loading dataset {self.category}", flush=True)
         self.dataset = load_dataset(  # type: ignore[assignment]
             "McAuley-Lab/Amazon-Reviews-2023",
             f"raw_meta_{self.category}",
@@ -69,9 +66,4 @@ class ItemLoader:
             trust_remote_code=True,
         )
         results = self.load_in_parallel(workers)
-        finish = datetime.now()
-        print(
-            f"Completed {self.category} with {len(results):,} datapoints in {(finish - start).total_seconds() / 60:.1f} mins",
-            flush=True,
-        )
         return results
